@@ -9,23 +9,24 @@
 
 
 #define CONFIG_WIFI_SCAN_AP_SIZE                10
-#define CONFIG_WIFI_CHANNEL_SIZE                14
-#define CONFIG_WIFI_FRAME_FCS_LEN               4
+
+#define WIFI_CHANNEL_SIZE                       14
+#define WIFI_FRAME_FCS_LEN                      4
 
 
 static const char *TAG = "wifi_sniffer";
 static wifi_ap_record_t ap_records[CONFIG_WIFI_SCAN_AP_SIZE] = {0};
 static uint16_t ap_size = CONFIG_WIFI_SCAN_AP_SIZE;
 static uint16_t ap_num = 0;
-static uint8_t ap_channels[CONFIG_WIFI_CHANNEL_SIZE] = {0};
-static uint8_t ap_channel_num = 0;
+static uint16_t channel_bitmap = 0; // bit:1~14
+
 
 static void rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     wifi_promiscuous_pkt_t *pkt = (wifi_promiscuous_pkt_t *)buf;
 
     ESP_LOGI(TAG, "recv pkt, type(0-mgmt,1-ctrl,2-data):%u channel:%u len:%u",
-        type, pkt->rx_ctrl.channel, pkt->rx_ctrl.sig_len - CONFIG_WIFI_FRAME_FCS_LEN);
-    // ESP_LOG_BUFFER_HEX(TAG, pkt->payload, pkt->rx_ctrl.sig_len - CONFIG_WIFI_FRAME_FCS_LEN);
+        type, pkt->rx_ctrl.channel, pkt->rx_ctrl.sig_len - WIFI_FRAME_FCS_LEN);
+    // ESP_LOG_BUFFER_HEX(TAG, pkt->payload, pkt->rx_ctrl.sig_len - WIFI_FRAME_FCS_LEN);
 }
 
 static void sniffer_cb(void *pvParameters) {
@@ -35,22 +36,21 @@ static void sniffer_cb(void *pvParameters) {
     filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT | WIFI_PROMIS_FILTER_MASK_CTRL | WIFI_PROMIS_FILTER_MASK_DATA;
     esp_wifi_set_promiscuous_filter(&filter);
     esp_wifi_set_promiscuous_rx_cb(rx_cb);
-
     while (1) {
-        esp_wifi_set_channel(ap_channels[i], WIFI_SECOND_CHAN_NONE);
-        esp_wifi_set_promiscuous(true);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        esp_wifi_set_promiscuous(false);
-        i++;
-        if (ap_channel_num == i) {
-            i = 0;
+        for (i = 1; i <= WIFI_CHANNEL_SIZE; i++) {
+            if (channel_bitmap & (1 << i)) {
+                esp_wifi_set_channel(i, WIFI_SECOND_CHAN_NONE);
+                esp_wifi_set_promiscuous(true);
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                esp_wifi_set_promiscuous(false);   
+            }
         }
     }
 }
 
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     wifi_event_home_channel_change_t *evt_channel_change = NULL;
-    uint16_t i = 0, j = 0;
+    uint16_t i = 0;
 
     if (WIFI_EVENT == event_base) {
         switch (event_id) {
@@ -63,15 +63,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
             for (i = 0; i < ap_size; i++) {
                 ESP_LOGI(TAG, "bssid:"MACSTR" rssi:%d authmode:0x%02x channel:%2u ssid:%s",
                     MAC2STR(ap_records[i].bssid), ap_records[i].rssi, ap_records[i].authmode, ap_records[i].primary, ap_records[i].ssid);
-                for (j = 0; j < ap_channel_num; j++) {
-                    if (ap_channels[j] == ap_records[i].primary) { // repeat channel
-                        break;
-                    }
-                }
-                if (j == ap_channel_num) { // new channel
-                    ap_channels[ap_channel_num] = ap_records[i].primary;
-                    ap_channel_num++;
-                }                
+                channel_bitmap |= (1 << ap_records[i].primary);              
             }
             xTaskCreate(sniffer_cb, "sniffer_task", 4096, NULL, 5, NULL);
             break;
