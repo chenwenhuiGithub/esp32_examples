@@ -16,7 +16,7 @@
 #define CONFIG_WIFI_STA_PWD                     "solaxpower"
 #define CONFIG_TCP_SERVER_PORT                  60001
 #define CONFIG_TCP_CLIENT_SIZE                  3
-#define CONFIG_TCP_RECV_TIMEOUT_MS              3000
+#define CONFIG_TCP_RECV_TIMEOUT_MS              5000
 
 
 static const char *TAG = "tcp_select";
@@ -30,8 +30,7 @@ static void tcp_server_cb(void *pvParameters) {
     struct sockaddr_in local_addr = {0};
     struct sockaddr_in client_addr = {0};
     socklen_t client_addr_len = sizeof(client_addr);
-    uint8_t i = 0;
-    int flags = 0;
+    uint32_t i = 0;
     int client_socks[CONFIG_TCP_CLIENT_SIZE] = {0};
     int max_fd = 0;
     fd_set readfds;
@@ -39,7 +38,11 @@ static void tcp_server_cb(void *pvParameters) {
         .tv_sec = CONFIG_TCP_RECV_TIMEOUT_MS / 1000,
         .tv_usec = (CONFIG_TCP_RECV_TIMEOUT_MS % 1000) * 1000
     };
-    int cnt = 0;
+    int select_cnt = 0;
+
+    for (i = 0; i < CONFIG_TCP_CLIENT_SIZE; i++) {
+        client_socks[i] = -1;
+    }
 
     listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (listen_sock < 0) {
@@ -59,21 +62,10 @@ static void tcp_server_cb(void *pvParameters) {
     listen(listen_sock, 1);
     ESP_LOGI(TAG, "tcp listen, port:%u", CONFIG_TCP_SERVER_PORT);
 
-    flags = fcntl(listen_sock, F_GETFL);
-    err = fcntl(listen_sock, F_SETFL, flags | O_NONBLOCK);
-    if (err < 0) {
-        ESP_LOGE(TAG, "socket fcntl failed:%d", errno);
-        goto exit;
-    }
-
-    for (i = 0; i < CONFIG_TCP_CLIENT_SIZE; i++) {
-        client_socks[i] = -1;
-    }
-    max_fd = listen_sock;
-
     while (1) {
         FD_ZERO(&readfds);
         FD_SET(listen_sock, &readfds);
+        max_fd = listen_sock;
         for (i = 0; i < CONFIG_TCP_CLIENT_SIZE; i++) {
             if (-1 != client_socks[i]) {
                 FD_SET(client_socks[i], &readfds);
@@ -83,11 +75,11 @@ static void tcp_server_cb(void *pvParameters) {
             }
         }
 
-        cnt = select(max_fd + 1, &readfds, NULL, NULL, &tv);
-        if (cnt < 0) {
+        select_cnt = select(max_fd + 1, &readfds, NULL, NULL, &tv);
+        if (select_cnt < 0) {
             ESP_LOGE(TAG, "socket select failed:%d", errno);
             goto exit; 
-        } else if (0 == cnt) {
+        } else if (0 == select_cnt) {
             ESP_LOGW(TAG, "socket select timeout");
             continue;
         } else {
@@ -106,14 +98,6 @@ static void tcp_server_cb(void *pvParameters) {
                     if (i == CONFIG_TCP_CLIENT_SIZE) {
                         ESP_LOGE(TAG, "client reach max:%u", CONFIG_TCP_CLIENT_SIZE);
                         close(client_sock);
-                    } else {
-                        flags = fcntl(client_sock, F_GETFL);
-                        err = fcntl(client_sock, F_SETFL, flags | O_NONBLOCK);
-                        if (err < 0) {
-                            ESP_LOGE(TAG, "socket fcntl failed:%d", errno);
-                            close(client_sock);
-                            client_socks[i] = -1;
-                        }
                     }
                 }
             }
