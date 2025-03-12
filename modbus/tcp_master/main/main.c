@@ -614,7 +614,7 @@ exit:
     vTaskDelete(NULL);
 }
 
-static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     wifi_event_sta_connected_t *evt_sta_conn = NULL;
     wifi_event_sta_disconnected_t *evt_sta_disconn = NULL;
     ip_event_got_ip_t *evt_got_ip = NULL;
