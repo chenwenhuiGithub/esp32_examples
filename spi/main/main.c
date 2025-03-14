@@ -20,23 +20,23 @@ void app_main(void) {
         return;
     }
     oled_clear();
-    oled_show_char(0, 0, 'a', 1);
-    oled_show_char(121, 0, 'Z', 1);
-    oled_show_string(50, 0, "spi", 1);
-    oled_show_string(0, 1, "abcdefg01234567890XYZ", 1);
-    oled_show_string(40, 2, "!#$&()?@<>=", 2);
+    oled_show_char(0, 0, 'a', CHAR_SIZE_6X8);
+    oled_show_char(121, 0, 'Z', CHAR_SIZE_6X8);
+    oled_show_string(50, 0, "spi", CHAR_SIZE_6X8);
+    oled_show_string(0, 1, "abcdefg01234567890XYZ", CHAR_SIZE_6X8);
+    oled_show_string(40, 2, "!#$&()?@<>=", CHAR_SIZE_8X16);
     oled_show_chinese(0, 4, hzline1_1, sizeof(hzline1_1));
     oled_show_chinese(80, 4, hzline1_2, sizeof(hzline1_2));
     oled_show_chinese(16, 6, hzline2, sizeof(hzline2));
 
-    oled_show_point(20, 2, 1);
-    oled_show_point(20, 5, 1);
-    oled_show_point(100, 2, 1);
-    oled_show_point(100, 5, 1);
-    oled_show_line(3, 24, 35, 24, 1);
-    oled_show_line(20, 20, 20, 30, 1);
-    oled_show_line(50, 35, 75, 45, 1);
-    oled_show_line(50, 45, 75, 35, 1);
+    oled_show_point(20, 2, POINT_STAT_ON);
+    oled_show_point(20, 5, POINT_STAT_ON);
+    oled_show_point(100, 2, POINT_STAT_ON);
+    oled_show_point(100, 5, POINT_STAT_ON);
+    oled_show_line(3, 24, 35, 24, POINT_STAT_ON);
+    oled_show_line(20, 20, 20, 30, POINT_STAT_ON);
+    oled_show_line(50, 35, 75, 45, POINT_STAT_ON);
+    oled_show_line(50, 45, 75, 35, POINT_STAT_ON);
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
