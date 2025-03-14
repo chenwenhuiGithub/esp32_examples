@@ -6,3 +6,6 @@ set(PROJECT_VER "1.2.3")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(ws_server)
+
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/server.crt" TEXT)
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/server_priv.key" TEXT)

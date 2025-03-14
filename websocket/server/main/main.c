@@ -15,6 +15,8 @@
 #define CONFIG_USE_WSS                          0
 
 #if CONFIG_USE_WSS == 1
+// 1. openssl genrsa -out server_priv.key 2048
+// 2. openssl req -new -x509 -days 365 -key server_priv.key -out server.crt -subj "/C=CN/ST=ZJ/L=HZ/O=esp32/OU=espressif/CN=*.espressif.com"
 extern const uint8_t server_crt_start[]         asm("_binary_server_crt_start");
 extern const uint8_t server_crt_end[]           asm("_binary_server_crt_end");
 extern const uint8_t server_priv_key_start[]    asm("_binary_server_priv_key_start");
@@ -81,24 +83,24 @@ static void ws_server_cb(void *pvParameters) {
     httpd_handle_t hd_server = NULL;
 
 #if CONFIG_USE_WSS == 1
-    httpd_ssl_config_t httpd_cfg = HTTPD_SSL_CONFIG_DEFAULT();
-    httpd_cfg.servercert = server_crt_start;
-    httpd_cfg.servercert_len = server_crt_end - server_crt_start;
-    httpd_cfg.prvtkey_pem = server_priv_key_start;
-    httpd_cfg.prvtkey_len = server_priv_key_end - server_priv_key_start;
-    if (httpd_ssl_start(&hd_server, &httpd_cfg) == ESP_OK) {
+    httpd_ssl_config_t https_cfg = HTTPD_SSL_CONFIG_DEFAULT();
+    https_cfg.servercert = server_crt_start;
+    https_cfg.servercert_len = server_crt_end - server_crt_start;
+    https_cfg.prvtkey_pem = server_priv_key_start;
+    https_cfg.prvtkey_len = server_priv_key_end - server_priv_key_start;
+    if (httpd_ssl_start(&hd_server, &https_cfg) == ESP_OK) {
         httpd_register_uri_handler(hd_server, &uri_echo);
-        ESP_LOGI(TAG, "start https server ok, port:%d", httpd_cfg.port_secure);
+        ESP_LOGI(TAG, "start wss server ok, port:%d", https_cfg.port_secure);
     } else {
-        ESP_LOGE(TAG, "start https server failed");
+        ESP_LOGE(TAG, "start wss server failed");
     }
 #else
-    httpd_config_t httpd_cfg = HTTPD_DEFAULT_CONFIG();
-    if (httpd_start(&hd_server, &httpd_cfg) == ESP_OK) {
+    httpd_config_t http_cfg = HTTPD_DEFAULT_CONFIG();
+    if (httpd_start(&hd_server, &http_cfg) == ESP_OK) {
         httpd_register_uri_handler(hd_server, &uri_echo);
-        ESP_LOGI(TAG, "start http server ok, port:%d", httpd_cfg.server_port);
+        ESP_LOGI(TAG, "start ws server ok, port:%d", http_cfg.server_port);
     } else {
-        ESP_LOGE(TAG, "start http server failed");
+        ESP_LOGE(TAG, "start ws server failed");
     }
 #endif
 

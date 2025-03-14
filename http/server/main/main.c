@@ -16,6 +16,8 @@
 #define CONFIG_USE_HTTPS                        0
 
 #if CONFIG_USE_HTTPS == 1
+// 1. openssl genrsa -out server_priv.key 2048
+// 2. openssl req -new -x509 -days 365 -key server_priv.key -out server.crt -subj "/C=CN/ST=ZJ/L=HZ/O=esp32/OU=espressif/CN=*.espressif.com"
 extern const uint8_t server_crt_start[]         asm("_binary_server_crt_start");
 extern const uint8_t server_crt_end[]           asm("_binary_server_crt_end");
 extern const uint8_t server_priv_key_start[]    asm("_binary_server_priv_key_start");
@@ -125,29 +127,29 @@ static void http_server_cb(void *pvParameters) {
     httpd_handle_t hd_httpd = NULL;
 
 #if CONFIG_USE_HTTPS == 1
-    httpd_ssl_config_t httpd_ssl_cfg = HTTPD_SSL_CONFIG_DEFAULT();
-    httpd_ssl_cfg.servercert = server_crt_start;
-    httpd_ssl_cfg.servercert_len = server_crt_end - server_crt_start;
-    httpd_ssl_cfg.prvtkey_pem = server_priv_key_start;
-    httpd_ssl_cfg.prvtkey_len = server_priv_key_end - server_priv_key_start;
-    err = httpd_ssl_start(&hd_httpd, &httpd_ssl_cfg);
+    httpd_ssl_config_t https_cfg = HTTPD_SSL_CONFIG_DEFAULT();
+    https_cfg.servercert = server_crt_start;
+    https_cfg.servercert_len = server_crt_end - server_crt_start;
+    https_cfg.prvtkey_pem = server_priv_key_start;
+    https_cfg.prvtkey_len = server_priv_key_end - server_priv_key_start;
+    err = httpd_ssl_start(&hd_httpd, &https_cfg);
     if (ESP_OK != err) {
         ESP_LOGE(TAG, "start https server error:%d", err);
         goto exit;
     }
     httpd_register_uri_handler(hd_httpd, &uri_get_hello);
     httpd_register_uri_handler(hd_httpd, &uri_post_echo);
-    ESP_LOGI(TAG, "start https server success, port:%d", httpd_ssl_cfg.port_secure);
+    ESP_LOGI(TAG, "start https server success, port:%d", https_cfg.port_secure);
 #else
-    httpd_config_t httpd_cfg = HTTPD_DEFAULT_CONFIG();
-    err = httpd_start(&hd_httpd, &httpd_cfg);
+    httpd_config_t http_cfg = HTTPD_DEFAULT_CONFIG();
+    err = httpd_start(&hd_httpd, &http_cfg);
     if (ESP_OK != err) {
         ESP_LOGE(TAG, "start http server error:%d", err);
         goto exit;
     }
     httpd_register_uri_handler(hd_httpd, &uri_get_hello);
     httpd_register_uri_handler(hd_httpd, &uri_post_echo);
-    ESP_LOGI(TAG, "start http server success, port:%d", httpd_cfg.server_port);
+    ESP_LOGI(TAG, "start http server success, port:%d", http_cfg.server_port);
 #endif
 
 exit:

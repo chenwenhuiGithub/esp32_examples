@@ -6,3 +6,5 @@ set(PROJECT_VER "1.2.3")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(ws_client)
+
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/echows_root.crt" TEXT)

@@ -11,21 +11,24 @@
 
 #define CONFIG_WIFI_STA_SSID                    "SolaxGuest"
 #define CONFIG_WIFI_STA_PWD                     "solaxpower"
-#define CONFIG_HTTP_SERVER_URL                  "httpbin.org"
-#define CONFIG_HTTPS_SERVER_URL                 "www.howsmyssl.com"
+#define CONFIG_HTTP_SERVER_HOSTNAME             "httpbin.org"
+#define CONFIG_HTTPS_SERVER_HOSTNAME            "howsmyssl.com"
 #define CONFIG_HTTP_BUF_SIZE                    1024
+
+extern const char howsmyssl_root_crt_start[]    asm("_binary_howsmyssl_root_crt_start");
+extern const char howsmyssl_root_crt_end[]      asm("_binary_howsmyssl_root_crt_end");
 
 
 static const char *TAG = "http_client";
-extern const char howsmyssl_root_crt_start[]    asm("_binary_howsmyssl_root_crt_start");
-extern const char howsmyssl_root_crt_end[]      asm("_binary_howsmyssl_root_crt_end");
 
 static void test_http_get() {
     esp_err_t err = ESP_OK;
     esp_http_client_config_t client_cfg = {
-        .url = "http://"CONFIG_HTTP_SERVER_URL"/get",
-        // .url = "http://"CONFIG_HTTP_SERVER_URL"/stream-bytes/200", // "Transfer-Encoding":"chunked"
-        .transport_type = HTTP_TRANSPORT_OVER_TCP,
+        // .url = "http://"CONFIG_HTTP_SERVER_HOSTNAME"/stream-bytes/200", // "Transfer-Encoding":"chunked"
+        .url = "http://"CONFIG_HTTP_SERVER_HOSTNAME"/get",
+        // .host = CONFIG_HTTP_SERVER_HOSTNAME,
+        // .path = "/get",
+        // .transport_type = HTTP_TRANSPORT_OVER_TCP,
         .method = HTTP_METHOD_GET,
     };
     esp_http_client_handle_t hd_client = NULL;
@@ -91,8 +94,7 @@ static void test_http_get() {
 static void test_http_post() {
     esp_err_t err = ESP_OK;
     esp_http_client_config_t client_cfg = {
-        .url = "http://"CONFIG_HTTP_SERVER_URL"/post",
-        .transport_type = HTTP_TRANSPORT_OVER_TCP,
+        .url = "http://"CONFIG_HTTP_SERVER_HOSTNAME"/post",
     };
     esp_http_client_handle_t hd_client = NULL;
     const char *post_data = "{\"field1\":\"value1\"}";
@@ -152,7 +154,8 @@ static void test_http_post() {
 static void test_https_get() {
     esp_err_t err = ESP_OK;
     esp_http_client_config_t client_cfg = {
-        .host = CONFIG_HTTPS_SERVER_URL,
+        // .url = "https://"CONFIG_HTTPS_SERVER_HOSTNAME,
+        .host = CONFIG_HTTPS_SERVER_HOSTNAME,
         .path = "/",
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .method = HTTP_METHOD_GET,

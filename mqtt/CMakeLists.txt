@@ -6,3 +6,7 @@ set(PROJECT_VER "1.2.3")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(mqtt)
+
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/mosquitto_root.crt" TEXT)
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/client.crt" TEXT)
+target_add_binary_data(${CMAKE_PROJECT_NAME}.elf "main/certs/client_priv.key" TEXT)

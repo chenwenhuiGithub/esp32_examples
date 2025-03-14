@@ -13,17 +13,12 @@
 
 #define CONFIG_WIFI_STA_SSID                    "SolaxGuest"
 #define CONFIG_WIFI_STA_PWD                     "solaxpower"
-#define CONFIG_WS_SERVER_URI                    "ws://echo.websocket.events"
-#define CONFIG_WSS_SERVER_URI                   "wss://echo.websocket.events"
+#define CONFIG_WS_SERVER_HOSTNAME               "echo.websocket.events"
 #define CONFIG_USE_WSS                          0
 
 #if CONFIG_USE_WSS == 1
 extern const char echows_root_crt_start[]       asm("_binary_echows_root_crt_start");
 extern const char echows_root_crt_end[]         asm("_binary_echows_root_crt_end");
-extern const char client_crt_start[]            asm("_binary_client_crt_start");
-extern const char client_crt_end[]              asm("_binary_client_crt_end");
-extern const char client_priv_key_start[]       asm("_binary_client_priv_key_start");
-extern const char client_priv_key_end[]         asm("_binary_client_priv_key_end");
 #endif
 
 
@@ -96,18 +91,20 @@ static void websocket_event_handler(void *event_handler_arg, esp_event_base_t ba
 }
 
 static void ws_client_cb(void *pvParameters) {
-    esp_websocket_client_config_t client_cfg = {0};
+    esp_websocket_client_config_t client_cfg = {
 #if CONFIG_USE_WSS == 1
-    client_cfg.uri = CONFIG_WSS_SERVER_URI;
-    client_cfg.cert_pem = echows_root_crt_start;
-    client_cfg.client_cert = client_crt_start;
-    client_cfg.client_cert_len = client_crt_end - client_crt_start;
-    client_cfg.client_key = client_priv_key_start;
-    client_cfg.client_key_len = client_priv_key_end - client_priv_key_start;
-    client_cfg.skip_cert_common_name_check = true;
+        // .uri = "wss://"CONFIG_WS_SERVER_HOSTNAME,
+        .host = CONFIG_WS_SERVER_HOSTNAME,
+        .transport = WEBSOCKET_TRANSPORT_OVER_SSL,
+        .cert_pem = echows_root_crt_start,
+        .cert_len = echows_root_crt_end - echows_root_crt_start,
+        .skip_cert_common_name_check = true
 #else
-    client_cfg.uri = CONFIG_WS_SERVER_URI;
+        .uri = "ws://"CONFIG_WS_SERVER_HOSTNAME,
+        // .host = CONFIG_WS_SERVER_HOSTNAME,
+        // .transport = WEBSOCKET_TRANSPORT_OVER_TCP
 #endif
+    };
 
     hd_ws_client = esp_websocket_client_init(&client_cfg);
     esp_websocket_register_events(hd_ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);

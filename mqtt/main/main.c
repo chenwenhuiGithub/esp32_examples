@@ -11,19 +11,18 @@
 
 #define CONFIG_WIFI_STA_SSID                    "SolaxGuest"
 #define CONFIG_WIFI_STA_PWD                     "solaxpower"
-#define CONFIG_MQTT_SERVER_URI                  "mqtt://test.mosquitto.org"
-#define CONFIG_MQTTS_SERVER_URI                 "mqtts://test.mosquitto.org"
+#define CONFIG_MQTT_SERVER_HOSTNAME             "test.mosquitto.org"
 #define CONFIG_MQTT_PORT                        1883
 #define CONFIG_MQTTS_PORT                       8884
 #define CONFIG_USE_MQTTS                        1
 
 #if CONFIG_USE_MQTTS == 1
-// 1. server root crt, download from https://test.mosquitto.org/ssl/mosquitto.org.crt
+// 1. download server root cert, https://test.mosquitto.org/ssl/mosquitto.org.crt
 extern const char mosquitto_root_crt_start[]    asm("_binary_mosquitto_root_crt_start");
 extern const char mosquitto_root_crt_end[]      asm("_binary_mosquitto_root_crt_end");
-// 1. generate client key-pair: openssl genrsa -out client_priv.key 2048
-// 2. generate csr: openssl req -new -key client_priv.key -out client.csr -subj "/C=CN/ST=Zhejiang/L=Hangzhou/O=esp32 example/CN=espressif.com"
-// 3. genarate crt, upload csr to https://test.mosquitto.org/ssl/index.php
+// 1. openssl genrsa -out client_priv.key 2048
+// 2. openssl req -new -key client_priv.key -out client.csr -subj "/C=CN/ST=ZJ/L=HZ/O=esp32/OU=espressif/CN=*.espressif.com"
+// 3. server root cert signature client cert, https://test.mosquitto.org/ssl/index.php
 extern const char client_crt_start[]            asm("_binary_client_crt_start");
 extern const char client_crt_end[]              asm("_binary_client_crt_end");
 extern const char client_priv_key_start[]       asm("_binary_client_priv_key_start");
@@ -77,8 +76,10 @@ static void mqtt_event_handler(void *event_handler_arg, esp_event_base_t event_b
 static void mqtt_client_cb(void *pvParameters) {
     esp_mqtt_client_config_t client_cfg = {
 #if CONFIG_USE_MQTTS == 1
-        .broker.address.uri = CONFIG_MQTTS_SERVER_URI,
+        // .broker.address.uri = "mqtts://"CONFIG_MQTT_SERVER_HOSTNAME":8884",
+        .broker.address.hostname = CONFIG_MQTT_SERVER_HOSTNAME,
         .broker.address.port = CONFIG_MQTTS_PORT,
+        .broker.address.transport = MQTT_TRANSPORT_OVER_SSL,
         .broker.verification.certificate = mosquitto_root_crt_start,
         .broker.verification.certificate_len = mosquitto_root_crt_end - mosquitto_root_crt_start,
         .credentials.authentication.certificate = client_crt_start,
@@ -86,8 +87,10 @@ static void mqtt_client_cb(void *pvParameters) {
         .credentials.authentication.key = client_priv_key_start,
         .credentials.authentication.key_len = client_priv_key_end - client_priv_key_start
 #else
-        .broker.address.uri = CONFIG_MQTT_SERVER_URI,
-        .broker.address.port = CONFIG_MQTT_PORT,
+        .broker.address.uri = "mqtt://"CONFIG_MQTT_SERVER_HOSTNAME":1883",
+        // .broker.address.hostname = CONFIG_MQTT_SERVER_HOSTNAME,
+        // .broker.address.port = CONFIG_MQTT_PORT,
+        // .broker.address.transport = MQTT_TRANSPORT_OVER_TCP
 #endif
     };
 
