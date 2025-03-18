@@ -19,37 +19,31 @@
 
 #define CONFIG_WIFI_STA_SSID                    "SolaxGuest"
 #define CONFIG_WIFI_STA_PWD                     "solaxpower"
-#define CONFIG_HTTPS_SERVER_HOSTNAME            "howsmyssl.com"
 #define CONFIG_HTTPS_SERVER_PORT                "443"
 
-extern const char howsmyssl_root_crt_start[]    asm("_binary_howsmyssl_root_crt_start");
-extern const char howsmyssl_root_crt_end[]      asm("_binary_howsmyssl_root_crt_end");
+extern const char server_crt_start[]            asm("_binary_server_crt_start");
+extern const char server_crt_end[]              asm("_binary_server_crt_end");
+extern const char server_priv_key_start[]       asm("_binary_server_priv_key_start");
+extern const char server_priv_key_end[]         asm("_binary_server_priv_key_end");
 
 
-static const char *TAG = "https_client";
-static const char get_req[] = "GET https://www."CONFIG_HTTPS_SERVER_HOSTNAME"/ HTTP/1.1\r\n"
-                              "Host: "CONFIG_HTTPS_SERVER_HOSTNAME"\r\n"
-                              "User-Agent: esp-idf/5.4.0 esp32\r\n"
-                              "\r\n";
+static const char *TAG = "https_server";
+static const char get_resp[] = "HTTP/1.1 200 OK\r\n"
+                               "Content-Type: text/html\r\n"
+                               "\r\n"
+                               "<h2>MbedTLS HTTPS Server</h2>\r\n"
+                               "<p>hello world</p>\r\n";
 
-static void https_client_cb(void *pvParameters) {
+static void https_server_cb(void *pvParameters) {
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context ctr_drbg;
-    mbedtls_net_context net_ctx;
     mbedtls_ssl_context ssl_ctx;
     mbedtls_ssl_config ssl_conf;
-    mbedtls_x509_crt ca_crt;
-    uint8_t get_resp[1024] = {0};
+    mbedtls_x509_crt server_crt;
+    mbedtls_pk_context pk_ctx;
+    mbedtls_net_context listen_fd, client_fd;
+    uint8_t get_req[1024] = {0};
     int ret = 0;
-    const int client_ciphersuites[] = {
-        MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
-        MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
-        MBEDTLS_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-        MBEDTLS_TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-        MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
-        MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
-        MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-        MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384};
     const int *support_ciphersuites = NULL;
 
     ESP_LOGI(TAG, "supported ciphersuites:");
@@ -62,23 +56,20 @@ static void https_client_cb(void *pvParameters) {
     mbedtls_entropy_init(&entropy);
     mbedtls_ctr_drbg_init(&ctr_drbg);
     mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0);
-    mbedtls_net_init(&net_ctx);
     mbedtls_ssl_init(&ssl_ctx);
     mbedtls_ssl_config_init(&ssl_conf);
-    mbedtls_x509_crt_init(&ca_crt);
+    mbedtls_x509_crt_init(&server_crt);
+    mbedtls_pk_init(&pk_ctx);
+    mbedtls_net_init(&listen_fd);
+    mbedtls_net_init(&client_fd);
 
-    mbedtls_x509_crt_parse(&ca_crt, (unsigned char *)howsmyssl_root_crt_start, howsmyssl_root_crt_end - howsmyssl_root_crt_start);
+    mbedtls_x509_crt_parse(&server_crt, (unsigned char *)server_crt_start, server_crt_end - server_crt_start);
+    mbedtls_pk_parse_key(&pk_ctx, (unsigned char *)server_priv_key_start, server_priv_key_end - server_priv_key_start, NULL, 0, mbedtls_ctr_drbg_random, &ctr_drbg);
 
-    if ((ret = mbedtls_net_connect(&net_ctx, CONFIG_HTTPS_SERVER_HOSTNAME, CONFIG_HTTPS_SERVER_PORT, MBEDTLS_NET_PROTO_TCP)) != 0) {
-        ESP_LOGE(TAG, "mbedtls_net_connect failed:-0x%x", -ret);
-        goto exit;
-    }
-    ESP_LOGI(TAG, "mbedtls_net_connect success");
+    mbedtls_net_bind(&listen_fd, NULL, CONFIG_HTTPS_SERVER_PORT, MBEDTLS_NET_PROTO_TCP);
 
-    mbedtls_ssl_config_defaults(&ssl_conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
-    mbedtls_ssl_conf_ciphersuites(&ssl_conf, client_ciphersuites);
-    mbedtls_ssl_conf_authmode(&ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&ssl_conf, &ca_crt, NULL);
+    mbedtls_ssl_config_defaults(&ssl_conf, MBEDTLS_SSL_IS_SERVER, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+    mbedtls_ssl_conf_own_cert(&ssl_conf, &server_crt, &pk_ctx);
     mbedtls_ssl_conf_rng(&ssl_conf, mbedtls_ctr_drbg_random, &ctr_drbg);
 
     if ((ret = mbedtls_ssl_setup(&ssl_ctx, &ssl_conf)) != 0) {
@@ -87,8 +78,11 @@ static void https_client_cb(void *pvParameters) {
     }
     ESP_LOGI(TAG, "mbedtls_ssl_setup success");
     
-    mbedtls_ssl_set_hostname(&ssl_ctx, CONFIG_HTTPS_SERVER_HOSTNAME);
-    mbedtls_ssl_set_bio(&ssl_ctx, &net_ctx, mbedtls_net_send, mbedtls_net_recv, NULL);
+    ESP_LOGI(TAG, "wait client connect");
+    mbedtls_net_accept(&listen_fd, &client_fd, NULL, 0, NULL);
+    ESP_LOGI(TAG, "mbedtls_net_accept success");
+
+    mbedtls_ssl_set_bio(&ssl_ctx, &client_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
 
     while ((ret = mbedtls_ssl_handshake(&ssl_ctx)) != 0) {
         if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -98,43 +92,27 @@ static void https_client_cb(void *pvParameters) {
     }
     ESP_LOGI(TAG, "mbedtls_ssl_handshake success");
 
-    if ((ret = mbedtls_ssl_get_verify_result(&ssl_ctx)) != 0) {
-        ESP_LOGW(TAG, "mbedtls_ssl_get_verify_result failed:-0x%x", -ret);
-    } else {
-        ESP_LOGI(TAG, "mbedtls_ssl_get_verify_result success");
-    }
-
     ESP_LOGI(TAG, "ciphersuite:%s", mbedtls_ssl_get_ciphersuite(&ssl_ctx));
 
-    ESP_LOGI(TAG, "send HTTPS GET request");
-    mbedtls_ssl_write(&ssl_ctx, (unsigned char *)get_req, strlen(get_req));
-    
-    ESP_LOGI(TAG, "recv HTTPS GET response");
-    while (1) {
-        memset(get_resp, 0, sizeof(get_resp));
-        ret = mbedtls_ssl_read(&ssl_ctx, get_resp, sizeof(get_resp));
-        if (ret > 0) {
-            ESP_LOGI(TAG, "%s", get_resp);
-            // ESP_LOG_BUFFER_HEX(TAG, get_resp, ret);
-        } else if (0 == ret || MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY == ret) {
-            ESP_LOGW(TAG, "connection closed by peer");
-            break;
-        } else {
-            if (MBEDTLS_ERR_SSL_WANT_READ != ret && MBEDTLS_ERR_SSL_WANT_WRITE != ret) {
-                ESP_LOGE(TAG, "mbedtls_ssl_read failed:-0x%x", -ret);
-            }
-            break;
-        }
+    ESP_LOGI(TAG, "recv HTTPS GET request");
+    ret = mbedtls_ssl_read(&ssl_ctx, get_req, sizeof(get_req));
+    if (ret > 0) {
+        ESP_LOGI(TAG, "%s", get_req);
+        // ESP_LOG_BUFFER_HEX(TAG, get_req, ret);
+
+        ESP_LOGI(TAG, "send HTTPS GET response");
+        mbedtls_ssl_write(&ssl_ctx, (unsigned char *)get_resp, strlen(get_resp));
     }
 
 exit:
     mbedtls_ssl_close_notify(&ssl_ctx);
-    mbedtls_net_free(&net_ctx);
-    mbedtls_x509_crt_free(&ca_crt);
+    mbedtls_x509_crt_free(&server_crt);
     mbedtls_ssl_free(&ssl_ctx);
     mbedtls_ssl_config_free(&ssl_conf);
     mbedtls_ctr_drbg_free(&ctr_drbg);
     mbedtls_entropy_free(&entropy);
+    mbedtls_net_free(&listen_fd);
+    mbedtls_net_free(&client_fd);
 
     vTaskDelete(NULL); 
 }
@@ -172,7 +150,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
             evt_got_ip = (ip_event_got_ip_t *)event_data;
             ESP_LOGI(TAG, "IP_EVENT_STA_GOT_IP, ip:"IPSTR" netmask:"IPSTR" gw:"IPSTR"",
                 IP2STR(&evt_got_ip->ip_info.ip), IP2STR(&evt_got_ip->ip_info.netmask), IP2STR(&evt_got_ip->ip_info.gw));
-            xTaskCreate(https_client_cb, "https_client", 8192, NULL, 5, NULL);
+            xTaskCreate(https_server_cb, "https_server", 8192, NULL, 5, NULL);
             break;
         case IP_EVENT_STA_LOST_IP:
             ESP_LOGE(TAG, "IP_EVENT_STA_LOST_IP");
