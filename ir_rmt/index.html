@@ -1,0 +1,261 @@
+<!DOCTYPE html>  
+<html lang="zh">  
+<head>  
+    <meta charset="UTF-8">  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">  
+    <title>ESP32 管理</title>  
+    <style>  
+        body {  
+            font-family: Arial, sans-serif;  
+            margin: 20px;  
+            background-color: #f9f9f9;  
+            color: #333;  
+        }  
+        h1 {  
+            text-align: center;  
+            color: #5a5a5a;  
+        }  
+        .tab-container {  
+            display: flex;  
+            justify-content: center;  
+            margin: 20px 0;  
+        }  
+        .tab {  
+            padding: 15px 25px;  
+            cursor: pointer;  
+            background-color: #007bff;  
+            color: white;  
+            border-radius: 5px 5px 0 0;  
+            margin: 0 5px;  
+            transition: background-color 0.3s;  
+        }  
+        .tab:hover {  
+            background-color: #0056b3;  
+        }  
+        .function-page {  
+            display: none;  
+            border: 1px solid #ccc;  
+            border-top: none;  
+            border-radius: 0 0 5px 5px;  
+            background-color: white;  
+            padding: 20px;  
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);  
+        }  
+        .active {  
+            display: block;  
+        }  
+        label {  
+            display: block;  
+            margin: 10px 0 5px;  
+        }  
+        input[type="text"],  
+        input[type="password"],  
+        input[type="file"],  
+        button {  
+            width: 100%;  
+            padding: 10px;  
+            margin-top: 5px;  
+            border: 1px solid #ccc;  
+            border-radius: 5px;  
+            box-sizing: border-box;  
+            font-size: 16px;  
+        }  
+        button {  
+            background-color: #28a745;  
+            color: white;  
+            border: none;  
+            cursor: pointer;  
+            transition: background-color 0.3s;  
+        }  
+        button:hover {  
+            background-color: #218838;  
+        }  
+        .progress {  
+            width: 100%;  
+            background-color: #f3f3f3;  
+            border-radius: 5px;  
+            overflow: hidden;  
+            margin-top: 10px;  
+            height: 20px;  
+        }  
+        .progress-bar {  
+            height: 100%;  
+            width: 0;  
+            background-color: #4caf50;  
+            transition: width 0.4s;  
+        }  
+        .status-text {  
+            margin-top: 10px;  
+            font-size: 18px;  
+            font-weight: bold;  
+            text-align: center;  
+        }  
+        .log-display {
+            width: 100%;
+            height: 300px;
+            /* min-height: 100px; */
+            padding: 10px;
+            margin-top: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 16px;
+            background-color: #f9f9f9;
+            overflow-y: auto;
+        }
+    </style>  
+</head>  
+<body>  
+
+<div class="tab-container">  
+    <div class="tab" onclick="togglePage('tab_cfgWifi')">设备配网</div>  
+    <div class="tab" onclick="togglePage('tab_ota')">OTA 升级</div>  
+    <div class="tab" onclick="togglePage('tab_logSample')">日志采集</div>  
+</div>  
+
+<div id="tab_cfgWifi" class="function-page active">  
+    <h2>设备配网</h2>  
+    <label for="ssid">SSID:</label>  
+    <input type="text" id="ssid" required placeholder="请输入路由器 SSID">  
+    <label for="pwd">密码:</label>  
+    <input type="password" id="pwd" required placeholder="请输入路由器密码">  
+    <button onclick="send_cfgWifi()">OK</button>  
+    <p id="cfgWifiStatus" class="status-text"></p>  
+</div>  
+
+<div id="tab_ota" class="function-page">  
+    <h2>OTA 升级</h2>  
+    <input type="file" id="otaFile" accept=".bin" required>  
+    <button onclick="send_otaFile()">OK</button>  
+    <p id="otaStatus" class="status-text"></p>  
+    <div class="progress">  
+        <div id="progressBar" class="progress-bar"></div>  
+    </div>  
+</div>  
+
+<div id="tab_logSample" class="function-page">  
+    <h2>日志采集</h2>  
+    <button id="logSample">开启</button>  
+    <div id="logDisplay" class="log-display"></div>  
+</div>  
+
+<script>  
+    function togglePage(pageId) {  
+        const pages = document.querySelectorAll('.function-page');  
+        pages.forEach(page => {  
+            if (page.id === pageId) {  
+                page.classList.add('active');  
+            } else {  
+                page.classList.remove('active');  
+            }  
+        });  
+    }  
+
+    function send_cfgWifi() {  
+        const ssid = document.getElementById('ssid').value;  
+        const pwd = document.getElementById('pwd').value;  
+        if (!((0 < ssid.length) && (ssid.length < 32) && (0 < pwd.length) && (pwd.length < 64))) {  
+            alert("路由器 SSID 或密码长度不合法");  
+            return;  
+        }
+
+        fetch('https://192.168.10.10/cfgWifi', {  
+            method: 'POST',  
+            headers: {  
+                'Content-Type': 'application/json'  
+            },  
+            body: JSON.stringify({ 'ssid': ssid, 'pwd': pwd })  
+        })  
+        .then(response => response.json())  
+        .then(data => { 
+            if (data.code) {
+                document.getElementById('cfgWifiStatus').innerText = '失败: ' + data.message; 
+            } else {
+                document.getElementById('cfgWifiStatus').innerText = '成功';
+            }
+        })  
+        .catch(error => {  
+            console.error('Error:', error);  
+            document.getElementById('cfgWifiStatus').innerText = '失败: ' + error.message;  
+        });  
+    }  
+
+    function send_otaFile() {  
+        const fileInput = document.getElementById('otaFile');  
+        if (fileInput.files.length === 0) {  
+            alert("请先选择文件");  
+            return;  
+        }  
+
+        const formData = new FormData();  
+        formData.append('file', fileInput.files[0]);  
+
+        const xhr = new XMLHttpRequest();  
+        xhr.open('POST', 'https://192.168.10.10/ota', true);  
+
+        xhr.upload.onprogress = function (event) {  
+            if (event.lengthComputable) {  
+                const curPercent = (event.loaded / event.total) * 100;  
+                document.getElementById('otaStatus').innerText = '进度: ' + Math.round(curPercent) + '%';  
+                document.getElementById('progressBar').style.width = curPercent + '%';  
+            }  
+        };  
+
+        xhr.onload = function () {  
+            if (xhr.status === 200) {  
+                document.getElementById('otaStatus').innerText = '成功';  
+            } else {  
+                document.getElementById('otaStatus').innerText = '失败';  
+                document.getElementById('progressBar').style.width = '0%'; 
+            }  
+        };  
+
+        xhr.send(formData);  
+    }   
+
+    const logSampleBtn = document.getElementById('logSample');
+    const logDisplayDiv = document.getElementById('logDisplay');
+    let socket;
+    let sample_switch = false;
+
+    logSampleBtn.addEventListener('click', () => {
+        if (!socket || socket.readyState === WebSocket.CLOSED) {
+            socket = new WebSocket('ws://192.168.10.10:8001/');
+
+            socket.onopen = () => {
+                socket.send('start');
+                sample_switch = true;
+                logSampleBtn.textContent = '停止';
+            };
+
+            socket.onmessage = (event) => {
+                const newLogDiv = document.createElement('div');
+                newLogDiv.textContent = event.data;
+                logDisplayDiv.appendChild(newLogDiv);
+                logDisplayDiv.scrollTop = logDisplayDiv.scrollHeight;
+            };
+
+            socket.onclose = () => {
+                sample_switch = false;
+                logSampleBtn.textContent = '开启';
+            };
+
+            socket.onerror = (error) => {
+                console.error('webSocket err:', ererror.messageror);
+            };
+        } else {
+            if (sample_switch) {
+                socket.send('stop');
+                sample_switch = false;
+                logSampleBtn.textContent = '开启';
+            } else {
+                socket.send('start');
+                sample_switch = true;
+                logSampleBtn.textContent = '停止';
+            }
+        }
+    });
+</script>  
+
+</body>  
+</html>
