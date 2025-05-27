@@ -44,8 +44,8 @@ static const char *TAG = "ir";
 static QueueHandle_t s_hd_queue = NULL;
 static rmt_channel_handle_t s_hd_rx_channel = NULL;
 static rmt_channel_handle_t s_hd_tx_channel = NULL;
-static rmt_encoder_handle_t hd_my_encoder = NULL;
-static rmt_info_t rmt_infos[RMTID_MAX] = {
+static rmt_encoder_handle_t s_hd_my_encoder = NULL;
+static rmt_info_t s_hrmt_infos[RMTID_MAX] = {
     {
         RMTID_TV, {
             {CHANNELID_0,           {0x4C, 0x65, 0x45, 0xBA}},
@@ -220,7 +220,7 @@ static bool nec_parse_logic1(rmt_symbol_word_t symbol) {
     return (nec_check_range(symbol.duration0, NEC_DURATION_ONE_0) && nec_check_range(symbol.duration1, NEC_DURATION_ONE_1));
 }
 
-void nec_parse_frame(rmt_symbol_word_t *symbols, size_t num) {
+static void nec_parse_frame(rmt_symbol_word_t *symbols, size_t num) {
     uint32_t i = 0, i_bit = 0, i_byte = 0;
     uint8_t frame[NEC_FRAME_LEN] = {0};
 
@@ -261,7 +261,7 @@ void nec_parse_frame(rmt_symbol_word_t *symbols, size_t num) {
     }
 }
 
-static void ir_recv_cb(void* parameter) {
+void ir_recv_cb(void* parameter) {
     rmt_receive_config_t receive_cfg = {
         .signal_range_min_ns = 1250,     // the shortest duration for NEC signal is 560us, valid signal won't be treated as noise
         .signal_range_max_ns = 12000000, // the longest duration for NEC signal is 9000us, the receive won't stop early
@@ -301,7 +301,7 @@ void ir_init() {
     };
 
     s_hd_queue = xQueueCreate(1, sizeof(rmt_rx_done_event_data_t));
-    hd_my_encoder = create_my_encoder();
+    s_hd_my_encoder = create_my_encoder();
 
     rmt_new_rx_channel(&rx_channel_cfg, &s_hd_rx_channel);
     rmt_rx_register_event_callbacks(s_hd_rx_channel, &rx_evt_cbs, NULL);
@@ -309,8 +309,6 @@ void ir_init() {
     rmt_apply_carrier(s_hd_tx_channel, &carrier_cfg);
     rmt_enable(s_hd_rx_channel);
     rmt_enable(s_hd_tx_channel);
-
-    xTaskCreate(ir_recv_cb, "ir_recv_task", 2048, NULL, 2, NULL);
 }
 
 void ir_send(uint8_t *data, uint32_t len) {
@@ -318,19 +316,20 @@ void ir_send(uint8_t *data, uint32_t len) {
         .loop_count = 0, // no loop
     };
 
-    rmt_transmit(s_hd_tx_channel, hd_my_encoder, data, len, &transmit_cfg);
+    rmt_transmit(s_hd_tx_channel, s_hd_my_encoder, data, len, &transmit_cfg);
 }
 
 void ir_recv(uint8_t rmt_id, uint8_t channel_id) {
     uint8_t i = 0, j = 0;
 
     for (i = 0; i < RMTID_MAX; i++) {
-        if (rmt_id == rmt_infos[i].id) {
+        if (rmt_id == s_hrmt_infos[i].id) {
             for (j = 0; j < CHANNELID_MAX; j++) {
-                if (channel_id == rmt_infos[i].channels[j].id) {
+                if (channel_id == s_hrmt_infos[i].channels[j].id) {
                     ESP_LOGI(TAG, "send frame:%02X %02X %02X %02X",
-                        rmt_infos[i].channels[j].frame[0], rmt_infos[i].channels[j].frame[1], rmt_infos[i].channels[j].frame[2], rmt_infos[i].channels[j].frame[3]);
-                    ir_send(rmt_infos[i].channels[j].frame, NEC_FRAME_LEN);
+                        s_hrmt_infos[i].channels[j].frame[0], s_hrmt_infos[i].channels[j].frame[1],
+                        s_hrmt_infos[i].channels[j].frame[2], s_hrmt_infos[i].channels[j].frame[3]);
+                    ir_send(s_hrmt_infos[i].channels[j].frame, NEC_FRAME_LEN);
                     return;                    
                 }
             }

@@ -22,6 +22,12 @@
 
 
 static const char *TAG = "main";
+static TimerHandle_t s_hd_timer = NULL;
+
+static void wifi_reconnect_cb(TimerHandle_t xTimer) {
+    ESP_LOGI(TAG, "wifi reconnect");
+    esp_wifi_connect();
+}
 
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     wifi_event_sta_connected_t *evt_sta_conn = NULL;
@@ -46,9 +52,11 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
             evt_sta_disconn = (wifi_event_sta_disconnected_t *)event_data; // reason:wifi_err_reason_t
             ESP_LOGE(TAG, "WIFI_EVENT_STA_DISCONNECTED, reason:0x%02x rssi:%d", evt_sta_disconn->reason, evt_sta_disconn->rssi);
             netcfg_set_netstat(NETSTAT_WIFI_NOT_CONNECTED);
-            cloud_stop_connect();
-            esp_wifi_connect(); // TODO: delay 1min
-            ESP_LOGI(TAG, "wifi start connect");
+            cloud_disconnect();
+            xTimerReset(s_hd_timer, 0);
+            break;
+        case WIFI_EVENT_AP_START:
+            ESP_LOGI(TAG, "WIFI_EVENT_AP_START");
             break;
         case WIFI_EVENT_AP_STACONNECTED:
             evt_ap_staconn = (wifi_event_ap_staconnected_t *)event_data;
@@ -56,7 +64,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
             break;
         case WIFI_EVENT_AP_STADISCONNECTED:
             evt_ap_stadisconn = (wifi_event_ap_stadisconnected_t *)event_data; // reason:wifi_err_reason_t
-            ESP_LOGI(TAG, "WIFI_EVENT_AP_STADISCONNECTED, reason:0x%02x aid:0x%04x mac:"MACSTR"",
+            ESP_LOGW(TAG, "WIFI_EVENT_AP_STADISCONNECTED, reason:0x%02x aid:0x%04x mac:"MACSTR"",
                 evt_ap_stadisconn->reason, evt_ap_stadisconn->aid, MAC2STR(evt_ap_stadisconn->mac));
             break;
         case WIFI_EVENT_HOME_CHANNEL_CHANGE:
@@ -77,16 +85,15 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
             ESP_LOGI(TAG, "IP_EVENT_STA_GOT_IP, ip:"IPSTR" netmask:"IPSTR" gw:"IPSTR"",
                 IP2STR(&evt_got_ip->ip_info.ip), IP2STR(&evt_got_ip->ip_info.netmask), IP2STR(&evt_got_ip->ip_info.gw));
             netcfg_set_netstat(NETSTAT_WIFI_CONNECTED);
-            cloud_start_connect();
-            logSample_init();
+            xTimerStop(s_hd_timer, 0); // netcfg give right ssid&pwd, stop reconnect
+            cloud_connect();
             break;
         case IP_EVENT_STA_LOST_IP:
             ESP_LOGE(TAG, "IP_EVENT_STA_LOST_IP");
             netcfg_set_netstat(NETSTAT_WIFI_NOT_CONNECTED);
-            cloud_stop_connect();
+            cloud_disconnect();
             esp_wifi_disconnect();
-            esp_wifi_connect();
-            ESP_LOGI(TAG, "wifi start connect");
+            xTimerReset(s_hd_timer, 0);
             break;
         case IP_EVENT_AP_STAIPASSIGNED:
             evt_assigned_ip = (ip_event_ap_staipassigned_t *)event_data;
@@ -150,6 +157,7 @@ void app_main(void) {
     }
     esp_wifi_set_config(ESP_IF_WIFI_AP, &ap_cfg);
 
+    ESP_LOGI(TAG, "wifi info, ssid:%s password:%s ap_ssid:%s", sta_cfg.sta.ssid, sta_cfg.sta.password, ap_cfg.ap.ssid);
     err = esp_wifi_start();
     if (ESP_OK != err) {
         ESP_LOGE(TAG, "esp_wifi_start error:%d", err);
@@ -171,17 +179,22 @@ void app_main(void) {
         esp_wifi_connect();
     }
 
-    netcfg_init();
+    led_init();
     ir_init();
+    netcfg_init();
+    cloud_init();
+    s_hd_timer = xTimerCreate("wifi_reconnect", pdMS_TO_TICKS(60000), pdTRUE, NULL, wifi_reconnect_cb); // 1min, wifi reconnect
 
-    ESP_LOGI(TAG, "wifi info, ssid:%s password:%s ap_ssid:%s", sta_cfg.sta.ssid, sta_cfg.sta.password, ap_cfg.ap.ssid);
+    xTaskCreate(ir_recv_cb, "ir_recv", 2048, NULL, 3, NULL);
+    xTaskCreate(netstat_cb, "netstat", 2048, NULL, 3, NULL);
+    xTaskCreate(logSample_cb, "logSample", 4096, NULL, 2, NULL);
 
     while (1) {
         ESP_LOGI(TAG, "Task and Heap memory summary:");
         vTaskList(task_mem);
         printf("%s\n", task_mem);
 		heap_caps_print_heap_info(MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
-        vTaskDelay(pdMS_TO_TICKS(60000));
+        vTaskDelay(pdMS_TO_TICKS(30000)); // 30s, print memory info
     }
 
 exit:

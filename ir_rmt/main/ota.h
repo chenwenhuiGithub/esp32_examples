@@ -6,6 +6,7 @@
 
 #define CONFIG_OTA_REPORT_PROGRESS_MS               3000
 #define CONFIG_OTA_DOWNLOAD_RETRY                   3
+#define CONFIG_OTA_DOWNLOAD_BUF_SIZE                1024
 
 void ota_report_version();
 void ota_remote_start(uint8_t *payload, uint32_t payload_len);
