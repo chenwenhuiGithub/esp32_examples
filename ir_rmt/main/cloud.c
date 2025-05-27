@@ -8,8 +8,8 @@
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "cJSON.h"
+#include "ir.h"
 #include "netcfg.h"
-#include "tsl.h"
 #include "cloud.h"
 #include "ota.h"
 
@@ -21,6 +21,8 @@ extern const char remote_server_root_crt_end[]              asm("_binary_remote_
 static const char *TAG = "cloud";
 static esp_mqtt_client_handle_t s_hd_mqtt = NULL;
 static int s_subscribe_id[2] = {0};
+static uint8_t s_rmtId = 0;
+static uint8_t s_channelId = 0;
 
 char *cloud_gen_msg_id() {
     static mbedtls_entropy_context entropy;
@@ -79,7 +81,8 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t event_i
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGE(TAG, "MQTT_EVENT_DISCONNECTED");
         netcfg_set_netstat(NETSTAT_WIFI_CONNECTED);
-        cloud_start_connect();
+        cloud_disconnect();
+        cloud_connect();
         ESP_LOGI(TAG, "mqtt start connect");
         break;
     case MQTT_EVENT_SUBSCRIBED:
@@ -99,7 +102,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t event_i
         ESP_LOGI(TAG, "topic:%.*s", event->topic_len, event->topic);
         ESP_LOGI(TAG, "payload:%.*s", event->data_len, event->data);
         if (0 == strncmp(event->topic, CONFIG_TOPIC_TSL_SET, strlen(CONFIG_TOPIC_TSL_SET))) {
-            tsl_recv_set_tsl((uint8_t *)event->data, event->data_len);
+            cloud_recv_tsl((uint8_t *)event->data, event->data_len);
         } else if (0 == strncmp(event->topic, CONFIG_TOPIC_OTA_TASK, strlen(CONFIG_TOPIC_OTA_TASK))) {
             ota_remote_start((uint8_t *)event->data, event->data_len);
         } else {
@@ -112,8 +115,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t event_i
     }
 }
 
-void cloud_start_connect() {
-    esp_err_t err = ESP_OK;
+void cloud_init() {
     char client_id[128] = {0};
     char username[128] = {0};
     char password[128] = {0};
@@ -138,22 +140,72 @@ void cloud_start_connect() {
 
     s_hd_mqtt = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(s_hd_mqtt, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+}
+
+esp_err_t cloud_connect() {
+    esp_err_t err = ESP_OK;
+
     err = esp_mqtt_client_start(s_hd_mqtt);
     if (ESP_OK != err) {
-        ESP_LOGI(TAG, "mqtt client start error:%d", err);
+        ESP_LOGI(TAG, "mqtt client connect error:%d", err);
     } else {
-        ESP_LOGI(TAG, "mqtt client start success");
+        ESP_LOGI(TAG, "mqtt client connect success");
     }
+    return err;
 }
 
-void cloud_stop_connect() {
+esp_err_t cloud_disconnect() {
+    esp_err_t err = ESP_OK;
+
     if (s_hd_mqtt) {
-        esp_mqtt_client_stop(s_hd_mqtt);
+        err = esp_mqtt_client_stop(s_hd_mqtt);
     }
+    return err;
 }
 
-void cloud_send_publish(char *topic, uint8_t *payload, uint32_t payload_len, uint8_t qos) {
+void cloud_publish(char *topic, uint8_t *payload, uint32_t payload_len, uint8_t qos) {
     if (s_hd_mqtt) {
         esp_mqtt_client_publish(s_hd_mqtt, topic, (char *)payload, payload_len, qos, 0);
     }
+}
+
+void cloud_recv_tsl(uint8_t *payload, uint32_t payload_len) {
+    cJSON *json_root = cJSON_Parse((char *)payload);
+    cJSON *json_params = cJSON_GetObjectItem(json_root, "params");
+    cJSON *json_rmtId = cJSON_GetObjectItem(json_params, "rmtId");
+    cJSON *json_channelId = cJSON_GetObjectItem(json_params, "channelId");
+    uint8_t has_channelId = 0;
+
+    if (json_rmtId) {
+        s_rmtId = json_rmtId->valueint;
+    }
+    if (json_channelId) {
+        s_channelId = json_channelId->valueint;
+        has_channelId = 1;
+    }
+    cJSON_Delete(json_root);
+
+    if (!has_channelId) {
+        ESP_LOGI(TAG, "rmtId:%u", s_rmtId);
+    } else {
+        ESP_LOGI(TAG, "rmtId:%u, channelId:%u", s_rmtId, s_channelId);
+        ir_recv(s_rmtId, s_channelId);
+    }
+}
+
+void cloud_send_tsl() {
+    cJSON *json_root = cJSON_CreateObject();
+    cJSON *json_params = cJSON_CreateObject();
+    char *buf = NULL;
+
+    cJSON_AddStringToObject(json_root, "id", cloud_gen_msg_id());
+    cJSON_AddStringToObject(json_root, "version", "1.0.0");
+    cJSON_AddStringToObject(json_root, "method", "thing.event.property.post");
+    cJSON_AddNumberToObject(json_params, "rmtId", s_rmtId);
+    cJSON_AddNumberToObject(json_params, "channelId", s_channelId);
+    cJSON_AddItemToObject(json_root, "params", json_params);
+    buf = cJSON_PrintUnformatted(json_root);
+    cloud_publish(CONFIG_TOPIC_TSL_POST, (uint8_t *)buf, strlen(buf), 1);
+    free(buf);
+    cJSON_Delete(json_root);
 }

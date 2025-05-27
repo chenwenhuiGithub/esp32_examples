@@ -11,10 +11,12 @@ typedef enum {
     NETSTAT_CLOUD_CONNECTED
 } netcfg_netstat_t;
 
+void led_init();
 void netcfg_init();
 void netcfg_get_netstat(netcfg_netstat_t *stat);
 void netcfg_set_netstat(netcfg_netstat_t stat);
 void netcfg_get_wifi_info(char *ssid, char *pwd);
 void netcfg_set_wifi_info(char *ssid, char *pwd);
+void netstat_cb(void* parameter);
 
 #endif

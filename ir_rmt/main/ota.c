@@ -10,8 +10,6 @@
 #include "ota.h"
 
 
-#define OTA_DOWNLOAD_BUF_SIZE                       1024
-
 typedef struct {
     char url[256];
     char version[16];
@@ -31,6 +29,8 @@ static ota_task_t s_ota_task = {0};
 static esp_ota_handle_t s_hd_ota = 0;
 static esp_http_client_handle_t s_hd_http = NULL;
 static uint32_t s_download_size = 0;
+static char s_ota_buf[CONFIG_OTA_DOWNLOAD_BUF_SIZE] = {0};
+
 
 static void ota_progress_cb(void *pvParameters) {
     uint8_t progress = 0;
@@ -41,7 +41,7 @@ static void ota_progress_cb(void *pvParameters) {
         progress = s_download_size * 100 / s_ota_task.size;
         if (last_progress != progress) {
             sprintf(buf, "{\"id\":\"%s\", \"params\":{\"step\":\"%u\", \"desc\":\"success\"}}", cloud_gen_msg_id(), progress);
-            cloud_send_publish(CONFIG_TOPIC_OTA_PROGRESS, (uint8_t *)buf, strlen(buf), 0);
+            cloud_publish(CONFIG_TOPIC_OTA_PROGRESS, (uint8_t *)buf, strlen(buf), 0);
             last_progress = progress;
             ESP_LOGI(TAG, "report progress: %u%%", progress);     
         }
@@ -60,7 +60,6 @@ static void ota_download_cb(void *pvParameters) {
     int len = 0;
     esp_app_desc_t app_desc = {0};
     uint8_t retry = 0;
-    char buf[OTA_DOWNLOAD_BUF_SIZE] = {0};
     uint8_t sha256[32] = {0};
     char sha256_hexstring[65] = {0};
     mbedtls_md_context_t md_ctx;
@@ -99,18 +98,18 @@ static void ota_download_cb(void *pvParameters) {
 
         esp_http_client_fetch_headers(s_hd_http);
         while (s_download_size < s_ota_task.size) {
-            len = esp_http_client_read(s_hd_http, buf, sizeof(buf));
+            len = esp_http_client_read(s_hd_http, s_ota_buf, sizeof(s_ota_buf));
             if (len <= 0) {
                 ESP_LOGE(TAG, "esp_http_client_read error:%d", len);
                 break;
             }
 
-            err = esp_ota_write(s_hd_ota, buf, len);
+            err = esp_ota_write(s_hd_ota, s_ota_buf, len);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "esp_ota_write error:%d", err);
                 goto exit;
             }
-            mbedtls_md_update(&md_ctx, (unsigned char *)buf, len);
+            mbedtls_md_update(&md_ctx, (unsigned char *)s_ota_buf, len);
             s_download_size += len;
             ESP_LOGI(TAG, "esp_ota_write success, cur:%d totol:%lu", len, s_download_size);
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -197,7 +196,7 @@ void ota_report_version() {
     part_run = esp_ota_get_running_partition();
     esp_partition_read(part_run, sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t), &app_desc, sizeof(esp_app_desc_t));
     sprintf(buf, "{\"id\":\"%s\", \"params\":{\"version\":\"%s\"}}", cloud_gen_msg_id(), app_desc.version);
-    cloud_send_publish(CONFIG_TOPIC_OTA_REPORT, (uint8_t *)buf, strlen(buf), 1);
+    cloud_publish(CONFIG_TOPIC_OTA_REPORT, (uint8_t *)buf, strlen(buf), 1);
     ESP_LOGI(TAG, "ota report version:%s", app_desc.version);
 }
 
@@ -207,11 +206,10 @@ static int verify_signature(const esp_partition_t *part, uint32_t file_size) {
     mbedtls_md_context_t ctx;
     uint8_t hash_data[32] = {0};
     uint8_t sign_data[256] = {0};
-    uint8_t buf[1024] = {0};
     uint32_t image_size = file_size - 256; // file_size = image + signature
     uint32_t i = 0;
-    uint32_t quotient = image_size / 1024;
-    uint32_t remainder = image_size % 1024;
+    uint32_t quotient = image_size / CONFIG_OTA_DOWNLOAD_BUF_SIZE;
+    uint32_t remainder = image_size % CONFIG_OTA_DOWNLOAD_BUF_SIZE;
 
     mbedtls_pk_init(&pk);
     ret = mbedtls_pk_parse_public_key(&pk, ota_sign_pub_key_start, ota_sign_pub_key_end - ota_sign_pub_key_start);
@@ -226,13 +224,13 @@ static int verify_signature(const esp_partition_t *part, uint32_t file_size) {
     mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);  
     mbedtls_md_starts(&ctx); 
     while (i < quotient) {
-        esp_partition_read(part, i * 1024, buf, 1024);
-        mbedtls_md_update(&ctx, buf, 1024);
+        esp_partition_read(part, i * CONFIG_OTA_DOWNLOAD_BUF_SIZE, s_ota_buf, CONFIG_OTA_DOWNLOAD_BUF_SIZE);
+        mbedtls_md_update(&ctx, (u_int8_t *)s_ota_buf, CONFIG_OTA_DOWNLOAD_BUF_SIZE);
         i++;
     }
     if (remainder != 0) {
-        esp_partition_read(part, i * 1024, buf, remainder);
-        mbedtls_md_update(&ctx, buf, remainder);
+        esp_partition_read(part, i * CONFIG_OTA_DOWNLOAD_BUF_SIZE, s_ota_buf, remainder);
+        mbedtls_md_update(&ctx, (u_int8_t *)s_ota_buf, remainder);
     }
     mbedtls_md_finish(&ctx, hash_data);  
     mbedtls_md_free(&ctx);  
@@ -250,7 +248,6 @@ static int verify_signature(const esp_partition_t *part, uint32_t file_size) {
 
 esp_err_t http_post_ota_handler(httpd_req_t *req) {
     esp_err_t err = ESP_OK;
-    char buf[OTA_DOWNLOAD_BUF_SIZE] = {0};
     size_t header_len = 0, file_size = 0, file_read = 0;
     int content_length = 0, read_len = 0, boundary_len = 0;
     char *boundary = NULL, *file_begin = NULL;
@@ -258,22 +255,22 @@ esp_err_t http_post_ota_handler(httpd_req_t *req) {
     const esp_partition_t *part_ota = NULL;
 
     header_len = httpd_req_get_hdr_value_len(req, "Content-Length");
-    httpd_req_get_hdr_value_str(req, "Content-Length", buf, header_len + 1);
-    content_length = atoi(buf);
-    ESP_LOGI(TAG, "Content-Length:%d", content_length);
+    httpd_req_get_hdr_value_str(req, "Content-Length", s_ota_buf, header_len + 1);
+    content_length = atoi(s_ota_buf);
 
     header_len = httpd_req_get_hdr_value_len(req, "Content-Type");
-    httpd_req_get_hdr_value_str(req, "Content-Type", buf, header_len + 1);
-    boundary = strstr(buf, "----");
+    httpd_req_get_hdr_value_str(req, "Content-Type", s_ota_buf, header_len + 1);
+    boundary = strstr(s_ota_buf, "----");
     boundary_len = strlen(boundary);
-    ESP_LOGI(TAG, "Content-Type:%s", buf);
+    ESP_LOGI(TAG, "Content-Type:%s", s_ota_buf);
 
     // first package, include First boundary,Content-Disposition,Content-Type,filedata
-    read_len = httpd_req_recv(req, buf, sizeof(buf));
-    file_begin = memmem(buf, read_len, end_line, sizeof(end_line));
+    read_len = httpd_req_recv(req, s_ota_buf, sizeof(s_ota_buf));
+    file_begin = memmem(s_ota_buf, read_len, end_line, sizeof(end_line));
     file_begin += sizeof(end_line);
-    file_size = content_length - (file_begin - buf) - boundary_len - 8;
-    file_read = read_len - (file_begin - buf);
+    file_size = content_length - (file_begin - s_ota_buf) - boundary_len - 8;
+    file_read = read_len - (file_begin - s_ota_buf);
+    ESP_LOGI(TAG, "Content-Length:%d file_size:%d", content_length, file_size);
 
     part_ota = esp_ota_get_next_update_partition(NULL);
     ESP_LOGI(TAG, "ota partition, address:0x%08"PRIx32" size:0x%08"PRIx32"", part_ota->address, part_ota->size);
@@ -292,7 +289,7 @@ esp_err_t http_post_ota_handler(httpd_req_t *req) {
     }
     ESP_LOGI(TAG, "esp_ota_write success, cur:%d totol:%u", file_read, file_read);
     while (file_read < file_size) {
-        read_len = httpd_req_recv(req, buf, sizeof(buf));
+        read_len = httpd_req_recv(req, s_ota_buf, sizeof(s_ota_buf));
         if (read_len <= 0) {
             ESP_LOGE(TAG, "httpd_req_recv error:%d", read_len);
             break;
@@ -301,7 +298,7 @@ esp_err_t http_post_ota_handler(httpd_req_t *req) {
         if (read_len > file_size - file_read) { // last package, maybe include Last boundary
             read_len = file_size - file_read;
         }
-        err = esp_ota_write(s_hd_ota, buf, read_len);
+        err = esp_ota_write(s_hd_ota, s_ota_buf, read_len);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "esp_ota_write error:%d", err);
             goto exit;
@@ -312,10 +309,10 @@ esp_err_t http_post_ota_handler(httpd_req_t *req) {
     }
 
     if (file_size != file_read) {
-        ESP_LOGE(TAG, "download image error, ota:%u download:%u", file_size, file_read);
+        ESP_LOGE(TAG, "download image error, file_size:%u download:%u", file_size, file_read);
         goto exit;
     }
-    ESP_LOGI(TAG, "download image success, ota:%u download:%u", file_size, file_read);
+    ESP_LOGI(TAG, "download image success");
 
     if (verify_signature(part_ota, file_size)) {
         ESP_LOGE(TAG, "signature check error");
