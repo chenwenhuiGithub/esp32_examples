@@ -45,5 +45,6 @@
 void ir_init();
 void ir_send(uint8_t *data, uint32_t data_len);
 void ir_recv(uint8_t rmt_id, uint8_t channel_id);
+void ir_recv_cb(void* parameter);
 
 #endif

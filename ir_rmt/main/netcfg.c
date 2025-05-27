@@ -28,9 +28,9 @@ extern const uint8_t https_server_priv_key_end[]            asm("_binary_https_s
 
 static const char *TAG = "netcfg";
 static nvs_handle_t s_hd_nvs = 0;
-netcfg_netstat_t s_netstat = NETSTAT_WIFI_NOT_CONNECTED;
+static netcfg_netstat_t s_netstat = NETSTAT_WIFI_NOT_CONNECTED;
 
-static void led_init() {
+void led_init() {
     gpio_config_t led_cfg = {0};
 
     led_cfg.intr_type = GPIO_INTR_DISABLE;
@@ -43,7 +43,7 @@ static void led_init() {
     gpio_set_level(CONFIG_GPIO_NUM_NETCFG_LED, 0); // 0 - off, 1 - on
 }
 
-static void netstat_task_cb(void* parameter) {	
+void netstat_cb(void* parameter) {	
     while (1) {
         if (NETSTAT_WIFI_NOT_CONNECTED == s_netstat) {
             gpio_set_level(CONFIG_GPIO_NUM_NETCFG_LED, 1);
@@ -141,13 +141,10 @@ void netcfg_init() {
         httpd_register_uri_handler(hd_httpd, &uri_get_index);
         httpd_register_uri_handler(hd_httpd, &uri_post_cfgWifi);
         httpd_register_uri_handler(hd_httpd, &uri_post_ota);
-        ESP_LOGI(TAG, "https server start success, port:%d", httpd_cfg.port_secure);
+        ESP_LOGI(TAG, "https server start success");
     } else {
         ESP_LOGE(TAG, "https server start error:%d", err);
     }
-
-    led_init();
-    xTaskCreate(netstat_task_cb, "netstat_task", 1024, NULL, 2, NULL);
 }
 
 void netcfg_get_netstat(netcfg_netstat_t *stat) {

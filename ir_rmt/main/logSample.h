@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
-void logSample_init();
+#define CONFIG_LOGSAMPLE_PORT                   8001
+
+void logSample_cb(void *pvParameters);
 
 #endif

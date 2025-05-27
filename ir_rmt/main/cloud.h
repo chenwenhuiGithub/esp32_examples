@@ -17,9 +17,12 @@
 #define CONFIG_TOPIC_OTA_PROGRESS                   "/ota/device/progress/"CONFIG_CLOUD_PK"/"CONFIG_CLOUD_DK
 #define CONFIG_TOPIC_OTA_REPORT                     "/ota/device/inform/"CONFIG_CLOUD_PK"/"CONFIG_CLOUD_DK
 
-void cloud_start_connect();
-void cloud_stop_connect();
+void cloud_init();
 char *cloud_gen_msg_id();
-void cloud_send_publish(char *topic, uint8_t *payload, uint32_t payload_len, uint8_t qos);
+esp_err_t cloud_connect();
+esp_err_t cloud_disconnect();
+void cloud_publish(char *topic, uint8_t *payload, uint32_t payload_len, uint8_t qos);
+void cloud_recv_tsl(uint8_t *payload, uint32_t payload_len);
+void cloud_send_tsl();
 
 #endif
