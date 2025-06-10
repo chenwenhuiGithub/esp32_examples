@@ -4,3 +4,4 @@
 /**/dependencies.lock
 /**/*.bin
 .vscode/
+/**/managed_components/
