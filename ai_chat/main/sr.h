@@ -10,11 +10,11 @@
 #define CONFIG_GPIO_INMP441_WS                  3
 #define CONFIG_GPIO_INMP441_SD                  46
 
-#define CONFIG_SAMPLE_RATE_TX                   16000
+#define CONFIG_SAMPLE_RATE_TX                   24000 // ???
 #define CONFIG_SAMPLE_RATE_RX                   16000
 
-#define CONFIG_CHANNEL_NUM_RX                   1 // ???
-#define CONFIG_AFE_INPUT_FORMAT                 "RM" // M - Mic, R - Record, N - Unused or Unknown, ???
+#define CONFIG_CHANNEL_NUM_RX                   1
+#define CONFIG_AFE_INPUT_FORMAT                 "M" // M - Mic, R - Record, N - Unused or Unknown, ???
 
 #define MN_CMDID_OPENTV                         1
 #define MN_CMDID_CLOSETV                        2
