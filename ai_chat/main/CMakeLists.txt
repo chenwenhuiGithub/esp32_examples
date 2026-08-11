@@ -1,4 +1,4 @@
-idf_component_register(SRCS "main.c" "ir.c" "sr.c" "oled.c"
+idf_component_register(SRCS "main.c"
                        INCLUDE_DIRS "")
 
 # Add voice_data partition and flash esp_tts_voice_data_xxx.dat
