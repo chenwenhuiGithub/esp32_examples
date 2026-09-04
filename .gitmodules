@@ -1,0 +1,3 @@
+[submodule "eebus/openeebus"]
+	path = eebus/openeebus
+	url = https://github.com/NIBEGroup/openeebus.git
