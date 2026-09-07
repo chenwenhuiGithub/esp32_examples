@@ -43,8 +43,8 @@ extern "C" {
 /**
  * internal or SPIRAM heap allocation.
  */
-#define EEBUS_MALLOC(size)  malloc(size)
-#define EEBUS_FREE(ptr)     free(ptr)
+#define EEBUS_MALLOC(size)  heap_caps_malloc((size), MALLOC_CAP_SPIRAM)
+#define EEBUS_FREE(ptr)     heap_caps_free(ptr)
 
 #ifdef __cplusplus
 }

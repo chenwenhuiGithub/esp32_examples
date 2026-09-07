@@ -19,18 +19,24 @@
  */
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdio.h>
 #include "esp_log.h"
 
 
 static const char *TAG = "openeebus";
+static char log_buf[1024] = {0};
 
 void DebugPrintf(const char* format, ...) {
-  va_list args;
-  va_start(args, format);
-  esp_log_writev(ESP_LOG_DEBUG, TAG, format, args);
-  va_end(args);
+    va_list args;
+
+    va_start(args, format);
+    vsnprintf(log_buf, sizeof(log_buf) - 1, format, args);
+    va_end(args);
+
+    ESP_LOGI(TAG, "%s", log_buf);
 }
 
 void DebugHexdump(void* data, size_t data_size) {
-  ESP_LOG_BUFFER_HEXDUMP(TAG, data, data_size, ESP_LOG_DEBUG);
+    // ESP_LOG_BUFFER_HEXDUMP(TAG, data, data_size, ESP_LOG_INFO);
+    // ESP_LOGI(TAG, "%s", (char *)data); // only WEBSOCKET_DEBUG_HEXDUMP used, log dump
 }

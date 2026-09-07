@@ -6,13 +6,15 @@
 #include "esp_event.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "eebus_process.h"
 
 
-#define CONFIG_WIFI_STA_SSID                    "SolaX-Test"
-#define CONFIG_WIFI_STA_PWD                     "solax688717"
+#define CONFIG_WIFI_STA_SSID                    "TP-LINK_442C"
+#define CONFIG_WIFI_STA_PWD                     "12345678"
 
 
 static const char *TAG = "main";
+esp_netif_t *wifi_sta_if = NULL;
 
 static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     wifi_event_sta_connected_t *evt_sta_conn = NULL;
@@ -66,6 +68,8 @@ void app_main(void) {
             .password = CONFIG_WIFI_STA_PWD,
         },
     };
+    
+    
 
     err = nvs_flash_init();
     if (ESP_ERR_NVS_NO_FREE_PAGES == err || ESP_ERR_NVS_NEW_VERSION_FOUND == err) {
@@ -82,15 +86,18 @@ void app_main(void) {
     esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL);
 
     esp_netif_init();
-    esp_netif_create_default_wifi_sta();
+    wifi_sta_if = esp_netif_create_default_wifi_sta();
     
     esp_wifi_init(&init_cfg);
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &sta_cfg);
     esp_wifi_start();
 
+    esp_netif_set_hostname(wifi_sta_if, EEBUS_SN);
+    xTaskCreate(eebus_task_cb, "eebus", 10 * 1024, NULL, 5, NULL);
+
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelay(pdMS_TO_TICKS(60000));
         ESP_LOGI(TAG, "heap free size, total:%u internal:%u", esp_get_free_heap_size(), esp_get_free_internal_heap_size());
     }
 }
