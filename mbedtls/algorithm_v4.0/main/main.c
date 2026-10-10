@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "psa/crypto_struct.h"
 #include "psa/crypto.h"
 #include "mbedtls/base64.h"
 #include "mbedtls/pk.h"
@@ -34,7 +35,7 @@ void gen_random(uint8_t *data, uint32_t len) {
     psa_generate_random(data, len);
 }
 
-void calc_md5(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_size, uint32_t *hash_len) {
+void hash_md5(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_size, uint32_t *hash_len) {
 #if CONFIG_USE_MULTIPART_API == 1
     psa_hash_operation_t hash_op = PSA_HASH_OPERATION_INIT;
 
@@ -47,7 +48,7 @@ void calc_md5(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_s
 #endif
 }
 
-void calc_sha1(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_size, uint32_t *hash_len) {
+void hash_sha1(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_size, uint32_t *hash_len) {
 #if CONFIG_USE_MULTIPART_API == 1
     psa_hash_operation_t hash_op = PSA_HASH_OPERATION_INIT;
 
@@ -60,7 +61,7 @@ void calc_sha1(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_
 #endif
 }
 
-void calc_sha256(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_size, uint32_t *hash_len) {
+void hash_sha256(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t hash_size, uint32_t *hash_len) {
 #if CONFIG_USE_MULTIPART_API == 1
     psa_hash_operation_t hash_op = PSA_HASH_OPERATION_INIT;
 
@@ -73,7 +74,7 @@ void calc_sha256(uint8_t *input, uint32_t input_len, uint8_t *hash, uint32_t has
 #endif
 }
 
-void calc_hmac256(uint8_t *input, uint32_t input_len, uint8_t *key, uint32_t key_len, uint8_t *hmac, uint32_t hmac_size, uint32_t *hmac_len) {
+void mac_hmac256(uint8_t *input, uint32_t input_len, uint8_t *key, uint32_t key_len, uint8_t *hmac, uint32_t hmac_size, uint32_t *hmac_len) {
     psa_key_attributes_t key_attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_id_t key_id = PSA_KEY_ID_NULL;
 
@@ -96,7 +97,7 @@ void calc_hmac256(uint8_t *input, uint32_t input_len, uint8_t *key, uint32_t key
     psa_destroy_key(key_id);
 }
 
-void calc_cmac(uint8_t *input, uint32_t input_len, uint8_t *key, uint32_t key_len, uint8_t *cmac, uint32_t cmac_size, uint32_t *cmac_len) {
+void mac_cmac(uint8_t *input, uint32_t input_len, uint8_t *key, uint32_t key_len, uint8_t *cmac, uint32_t cmac_size, uint32_t *cmac_len) {
     psa_key_attributes_t key_attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_id_t key_id = PSA_KEY_ID_NULL;
 
@@ -601,6 +602,115 @@ int ecc_verify(uint8_t *hash, uint32_t hash_len, uint8_t *pubkey, uint32_t pubke
     return status;
 }
 
+void key_agreement_ecdh(uint8_t *privkey, uint32_t privkey_len, uint8_t *peer_pubkey, uint32_t peer_pubkey_len, uint8_t *output, uint32_t output_size, uint32_t *output_len) {
+    psa_key_attributes_t key_attr = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t key_id = PSA_KEY_ID_NULL;
+    
+    psa_set_key_usage_flags(&key_attr, PSA_KEY_USAGE_DERIVE);
+    psa_set_key_algorithm(&key_attr, PSA_ALG_ECDH);
+    psa_set_key_type(&key_attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&key_attr, CONFIG_ECC_KEY_BITS);
+    psa_import_key(&key_attr, privkey, privkey_len, &key_id);
+
+    psa_raw_key_agreement(PSA_ALG_ECDH, key_id, peer_pubkey, peer_pubkey_len, output, output_size, (size_t *)output_len); // dhkey.x
+    psa_destroy_key(key_id);
+}
+
+void kdf_hkdf(uint8_t *inputkey, uint32_t inputkey_len, uint8_t *salt, uint32_t salt_len, uint8_t *info, uint32_t info_len, uint8_t *outputkey, uint32_t outputkey_len) {
+    psa_key_derivation_operation_t kdf_op = PSA_KEY_DERIVATION_OPERATION_INIT;
+
+    psa_key_derivation_setup(&kdf_op, PSA_ALG_HKDF(PSA_ALG_SHA_256));
+    // must with order: SALT -> SECRET
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_SALT, salt, salt_len);
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_SECRET, inputkey, inputkey_len);
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_INFO, info, info_len);
+    psa_key_derivation_output_bytes(&kdf_op, outputkey, outputkey_len);
+    psa_key_derivation_abort(&kdf_op);
+}
+
+void kdf_pbkdf2(uint8_t *inputkey, uint32_t inputkey_len, uint8_t *salt, uint32_t salt_len, uint32_t iterations, uint8_t *outputkey, uint32_t outputkey_len) {
+    psa_key_derivation_operation_t kdf_op = PSA_KEY_DERIVATION_OPERATION_INIT;
+
+    psa_key_derivation_setup(&kdf_op, PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256));
+    // must with order: COST -> SALT -> PASSWORD
+    psa_key_derivation_input_integer(&kdf_op, PSA_KEY_DERIVATION_INPUT_COST, iterations);
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_SALT, salt, salt_len);
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_PASSWORD, inputkey, inputkey_len);
+    psa_key_derivation_output_bytes(&kdf_op, outputkey, outputkey_len);
+    psa_key_derivation_abort(&kdf_op);
+}
+
+void kdf_tls12prf(uint8_t *inputkey, uint32_t inputkey_len, uint8_t *label, uint32_t label_len, uint8_t *seed, uint32_t seed_len, uint8_t *outputkey, uint32_t outputkey_len) {
+    psa_key_derivation_operation_t kdf_op = PSA_KEY_DERIVATION_OPERATION_INIT;
+
+    psa_key_derivation_setup(&kdf_op, PSA_ALG_TLS12_PRF(PSA_ALG_SHA_256));
+    // must with order: SEED -> SECRET -> LABEL
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_SEED, seed, seed_len);
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_SECRET, inputkey, inputkey_len);
+    psa_key_derivation_input_bytes(&kdf_op, PSA_KEY_DERIVATION_INPUT_LABEL, label, label_len);
+    psa_key_derivation_output_bytes(&kdf_op, outputkey, outputkey_len);
+    psa_key_derivation_abort(&kdf_op);
+}
+
+void crt_gen_selfsign_crt(char *subject_name, char *not_before, char *not_after, uint8_t *pubkey, uint32_t pubkey_size, uint32_t *pubkey_len,
+                          uint8_t *privkey, uint32_t privkey_size, uint32_t *privkey_len, uint8_t *crt, uint32_t crt_size, uint32_t *crt_len) {
+    psa_key_attributes_t key_attr = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t key_id = PSA_KEY_ID_NULL;
+    mbedtls_pk_context pk_ctx;
+    mbedtls_x509write_cert x509w_crt;
+    uint8_t sn[MBEDTLS_X509_RFC5280_MAX_SERIAL_LEN] = {0};
+
+    psa_generate_random(sn, MBEDTLS_X509_RFC5280_MAX_SERIAL_LEN);
+
+    psa_set_key_usage_flags(&key_attr, PSA_KEY_USAGE_EXPORT | PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH);
+    psa_set_key_algorithm(&key_attr, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+    psa_set_key_type(&key_attr, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&key_attr, 256);
+    psa_generate_key(&key_attr, &key_id);
+
+    mbedtls_pk_init(&pk_ctx);
+    mbedtls_pk_copy_from_psa(key_id, &pk_ctx);
+#if CONFIG_USE_FORMAT_PEM == 1
+    mbedtls_pk_write_pubkey_pem(&pk_ctx, (unsigned char *)pubkey, pubkey_size);
+    mbedtls_pk_write_key_pem(&pk_ctx, (unsigned char *)privkey, privkey_size);
+    *pubkey_len = strlen((char *)pubkey) + 1;
+    *privkey_len = strlen((char *)privkey) + 1;
+#else
+    *pubkey_len = mbedtls_pk_write_pubkey_der(&pk_ctx, pubkey, pubkey_size);
+    *privkey_len = mbedtls_pk_write_key_der(&pk_ctx, privkey, privkey_size);
+    memmove(pubkey, pubkey + (pubkey_size - *pubkey_len), *pubkey_len);
+    memmove(privkey, privkey + (privkey_size - *privkey_len), *privkey_len);
+#endif
+
+    mbedtls_x509write_crt_init(&x509w_crt);
+    mbedtls_x509write_crt_set_version(&x509w_crt, MBEDTLS_X509_CRT_VERSION_3);
+    mbedtls_x509write_crt_set_md_alg(&x509w_crt, MBEDTLS_MD_SHA256);
+    mbedtls_x509write_crt_set_subject_key(&x509w_crt, &pk_ctx);
+    mbedtls_x509write_crt_set_ns_cert_type(&x509w_crt,
+        MBEDTLS_X509_NS_CERT_TYPE_SSL_CLIENT | MBEDTLS_X509_NS_CERT_TYPE_SSL_SERVER | MBEDTLS_X509_NS_CERT_TYPE_OBJECT_SIGNING);
+    mbedtls_x509write_crt_set_key_usage(&x509w_crt,
+        MBEDTLS_X509_KU_DIGITAL_SIGNATURE | MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+    mbedtls_x509write_crt_set_subject_name(&x509w_crt, subject_name);
+    mbedtls_x509write_crt_set_issuer_name(&x509w_crt, subject_name);  
+    mbedtls_x509write_crt_set_issuer_key(&x509w_crt, &pk_ctx);
+    mbedtls_x509write_crt_set_serial_raw(&x509w_crt, sn, sizeof(sn));
+    mbedtls_x509write_crt_set_validity(&x509w_crt, not_before, not_after);
+    mbedtls_x509write_crt_set_basic_constraints(&x509w_crt, 1, -1);
+    mbedtls_x509write_crt_set_subject_key_identifier(&x509w_crt);
+    mbedtls_x509write_crt_set_authority_key_identifier(&x509w_crt);
+#if CONFIG_USE_FORMAT_PEM == 1
+    mbedtls_x509write_crt_pem(&x509w_crt, (unsigned char *)crt, crt_size);
+    *crt_len = strlen((char *)crt) + 1;
+#else
+    *crt_len = mbedtls_x509write_crt_der(&x509w_crt, crt, crt_size);
+    memmove(crt, crt + (crt_size - *crt_len), *crt_len);
+#endif
+
+    mbedtls_x509write_crt_free(&x509w_crt);
+    mbedtls_pk_free(&pk_ctx);
+    psa_destroy_key(key_id);
+}
+
 void crt_gen_csr(alg_usage_t useage, uint8_t *privkey, uint32_t privkey_len, char *subject_name, uint8_t *output, uint32_t output_size, uint32_t *output_len) {
     psa_key_attributes_t key_attr = PSA_KEY_ATTRIBUTES_INIT;
     psa_key_id_t key_id = PSA_KEY_ID_NULL;
@@ -780,15 +890,15 @@ void test_hash() {
     uint8_t hash[128] = {0};
     uint32_t hash_len = 0;
 
-    calc_md5(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
+    hash_md5(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
     ESP_LOGI(TAG, "md5, len:%lu", hash_len);
     ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
 
-    calc_sha1(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
+    hash_sha1(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
     ESP_LOGI(TAG, "sha1, len:%lu", hash_len);
     ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
 
-    calc_sha256(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
+    hash_sha256(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
     ESP_LOGI(TAG, "sha256, len:%lu", hash_len);
     ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
 }
@@ -823,7 +933,7 @@ void test_hmac() {
     uint8_t hmac[128] = {0};
     uint32_t hmac_len = 0;
     
-    calc_hmac256(src_data, sizeof(src_data), key, sizeof(key), hmac, sizeof(hmac), &hmac_len);
+    mac_hmac256(src_data, sizeof(src_data), key, sizeof(key), hmac, sizeof(hmac), &hmac_len);
     ESP_LOGI(TAG, "hmac256, len:%lu", hmac_len);
     ESP_LOG_BUFFER_HEX(TAG, hmac, hmac_len);
 }
@@ -854,7 +964,7 @@ void test_cmac() {
     uint8_t cmac[128] = {0};
     uint32_t cmac_len = 0;
     
-    calc_cmac(src_data, sizeof(src_data), key, sizeof(key), cmac, sizeof(cmac), &cmac_len);
+    mac_cmac(src_data, sizeof(src_data), key, sizeof(key), cmac, sizeof(cmac), &cmac_len);
     ESP_LOGI(TAG, "cmac, len:%lu", cmac_len);
     ESP_LOG_BUFFER_HEX(TAG, cmac, cmac_len);
 }
@@ -1130,7 +1240,7 @@ void test_rsa_sign() {
     ESP_LOGI(TAG, "rsa privkey, len:%lu", privkey_len);
     ESP_LOG_BUFFER_HEX(TAG, privkey, privkey_len);
 
-    calc_sha256(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
+    hash_sha256(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
     ESP_LOGI(TAG, "sha256, len:%lu", hash_len);
     ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
 
@@ -1183,7 +1293,7 @@ void test_ecc_sign() {
     ESP_LOGI(TAG, "ecc privkey, len:%lu", privkey_len);
     ESP_LOG_BUFFER_HEX(TAG, privkey, privkey_len);
 
-    calc_sha256(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
+    hash_sha256(src_data, sizeof(src_data), hash, sizeof(hash), &hash_len);
     ESP_LOGI(TAG, "sha256, len:%lu", hash_len);
     ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
 
@@ -1196,6 +1306,73 @@ void test_ecc_sign() {
 
     vPortFree(pubkey);
     vPortFree(privkey);
+}
+
+void test_key_agreement() {
+    uint8_t *our_pubkey = NULL, *our_privkey = NULL, *peer_pubkey = NULL, *peer_privkey = NULL;
+    uint32_t our_pubkey_len = 0, our_privkey_len = 0, peer_pubkey_len = 0, peer_privkey_len = 0;
+    uint8_t dhkey[128] = {0};
+    uint32_t dhkey_len = 0;
+    our_pubkey = pvPortMalloc(2048);
+    our_privkey = pvPortMalloc(2048);
+    peer_pubkey = pvPortMalloc(2048);
+    peer_privkey = pvPortMalloc(2048);
+
+    ecc_gen_keypair(our_pubkey, 2048, &our_pubkey_len, our_privkey, 2048, &our_privkey_len);
+    ESP_LOGI(TAG, "ecc our pubkey, len:%lu", our_pubkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, our_pubkey, our_pubkey_len);
+    ESP_LOGI(TAG, "ecc our privkey, len:%lu", our_privkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, our_privkey, our_privkey_len);
+
+    ecc_gen_keypair(peer_pubkey, 2048, &peer_pubkey_len, peer_privkey, 2048, &peer_privkey_len);
+    ESP_LOGI(TAG, "ecc peer pubkey, len:%lu", peer_pubkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, peer_pubkey, peer_pubkey_len);
+    ESP_LOGI(TAG, "ecc peer privkey, len:%lu", peer_privkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, peer_privkey, peer_privkey_len);
+
+    key_agreement_ecdh(our_privkey, our_privkey_len, peer_pubkey, peer_pubkey_len, dhkey, sizeof(dhkey), &dhkey_len);
+    ESP_LOGI(TAG, "ecc dhkey, len:%lu", dhkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, dhkey, dhkey_len);
+
+    vPortFree(our_pubkey);
+    vPortFree(our_privkey);
+    vPortFree(peer_pubkey);
+    vPortFree(peer_privkey);
+}
+
+void test_kdf() {
+    uint8_t inputkey[24] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
+    };
+    uint8_t salt[12] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B
+    };
+    uint8_t info[20] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x01, 0x23, 0x45, 0x67
+    };
+    uint8_t seed[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
+    };
+    uint8_t label[28] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xCD, 0xAB, 0x89, 0x67
+    };
+    uint32_t iterations = 1000;
+    uint8_t outputkey[32] = {0};
+
+    kdf_hkdf(inputkey, sizeof(inputkey), salt, sizeof(salt), info, sizeof(info), outputkey, sizeof(outputkey));
+    ESP_LOGI(TAG, "hkdf outputkey");
+    ESP_LOG_BUFFER_HEX(TAG, outputkey, sizeof(outputkey));
+
+    kdf_pbkdf2(inputkey, sizeof(inputkey), salt, sizeof(salt), iterations, outputkey, sizeof(outputkey));
+    ESP_LOGI(TAG, "pbkdf2 outputkey");
+    ESP_LOG_BUFFER_HEX(TAG, outputkey, sizeof(outputkey));
+
+    kdf_tls12prf(inputkey, sizeof(inputkey), label, sizeof(label), seed, sizeof(seed), outputkey, sizeof(outputkey));
+    ESP_LOGI(TAG, "tls12prf outputkey");
+    ESP_LOG_BUFFER_HEX(TAG, outputkey, sizeof(outputkey));
 }
 
 void test_crt() {
@@ -1225,6 +1402,29 @@ void test_crt() {
     memset(issuer_privkey, 0, 2048);
     memset(issuer_csr, 0, 2048);
     memset(issuer_crt, 0, 2048);
+
+    crt_gen_selfsign_crt(subject_name, not_before, not_after, subject_pubkey, 2048, &subject_pubkey_len, subject_privkey, 2048, &subject_privkey_len, subject_crt, 2048, &subject_crt_len);
+#if CONFIG_USE_FORMAT_PEM == 1
+    ESP_LOGI(TAG, "selfsign ecc pubkey pem, len:%lu", subject_pubkey_len);
+    ESP_LOGI(TAG, "%s", subject_pubkey);
+    ESP_LOGI(TAG, "selfsign ecc privkey pem, len:%lu", subject_privkey_len);
+    ESP_LOGI(TAG, "%s", subject_privkey);
+    ESP_LOGI(TAG, "selfsign crt pem, len:%lu", subject_crt_len);
+    ESP_LOGI(TAG, "%s", subject_crt);
+#else
+    ESP_LOGI(TAG, "selfsign ecc pubkey der, len:%lu", subject_pubkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, subject_pubkey, subject_pubkey_len);
+    ESP_LOGI(TAG, "selfsign ecc privkey der, len:%lu", subject_privkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, subject_privkey, subject_privkey_len);
+    ESP_LOGI(TAG, "selfsign crt der, len:%lu", subject_crt_len);
+    ESP_LOG_BUFFER_HEX(TAG, subject_crt, subject_crt_len);
+#endif
+    memset(subject_pubkey, 0, 2048);
+    memset(subject_privkey, 0, 2048);
+    memset(subject_crt, 0, 2048);
+    subject_pubkey_len = 0;
+    subject_privkey_len = 0;
+    subject_crt_len = 0;
 
     // generate issuer ecc keypair
     ecc_gen_keypair(issuer_pubkey, 2048, &issuer_pubkey_len, issuer_privkey, 2048, &issuer_privkey_len);
@@ -1312,6 +1512,8 @@ void test_algorithm_cb(void *pvParameters) {
     test_rsa_crypt();
     test_rsa_sign();
     test_ecc_sign();
+    test_key_agreement();
+    test_kdf();
     test_crt();
     ESP_LOGI(TAG, "test complete");
     
